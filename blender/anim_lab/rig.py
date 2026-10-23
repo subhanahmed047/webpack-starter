@@ -63,11 +63,34 @@ class Rig:
         r3 = self._rest3[bone]
         self.bones[bone].rotation_quaternion = (r3.inverted() @ R @ r3).to_quaternion()
 
-    def aim_chain(self, upper, lower, upper_dir, lower_dir, twist=0.0):
+    def total_delta(self, bone):
+        """Accumulated rotation (armature frame, relative to rest) of `bone` including all of
+        its parents, from the pose bones' current quaternions."""
+        chain = []
+        b = self.obj.data.bones[bone]
+        while b is not None:
+            chain.append(b.name)
+            b = b.parent
+        total = Matrix.Identity(3)
+        for name in reversed(chain):
+            r3 = self._rest3[name]
+            total = total @ (r3 @ self.bones[name].rotation_quaternion.to_matrix() @ r3.inverted())
+        return total
+
+    def set_abs_delta(self, bone, R_abs):
+        """Give `bone` the absolute rotation `R_abs` (armature frame, relative to rest),
+        whatever its parents are doing. Call parents first."""
+        parent = self.obj.data.bones[bone].parent
+        r_parent = self.total_delta(parent.name) if parent else Matrix.Identity(3)
+        self.rot_matrix(bone, r_parent.inverted() @ R_abs)
+
+    def aim_chain(self, upper, lower, upper_dir, lower_dir, twist=0.0, absolute=False):
         """Point a two-bone limb: `upper` toward `upper_dir`, `lower` toward `lower_dir`.
 
         Directions are vectors in armature axes (they need not be normalised). The rest
         direction of each bone is taken from the armature, so this is rig-independent.
+        By default the directions are relative to the parent chain (they lean with the
+        torso); with `absolute=True` they are true armature-space directions.
         """
         def rest_dir(name):
             b = self.obj.data.bones[name]
@@ -78,7 +101,10 @@ class Rig:
         if twist:
             r_up = Quaternion(ud, math.radians(twist)).to_matrix() @ r_up
         r_lo_abs = rest_dir(lower).rotation_difference(ld).to_matrix()
-        self.rot_matrix(upper, r_up)
+        if absolute:
+            self.set_abs_delta(upper, r_up)
+        else:
+            self.rot_matrix(upper, r_up)
         self.rot_matrix(lower, r_up.inverted() @ r_lo_abs)  # child rotation composes after parent
 
     def sync(self):
@@ -141,6 +167,10 @@ class Rig:
         elbow = sh + dirn * a + perp * h
         end = sh + dirn * d
         self.aim_chain(f"UpperArm.{side}", f"LowerArm.{side}", elbow - sh, end - elbow, twist)
+
+    def move_m(self, bone, delta):
+        """Translate `bone` by `delta` (armature-space metres) from its rest position."""
+        self.bones[bone].location = self._rest3[bone].inverted() @ Vector(delta)
 
     def move(self, bone, x=0.0, y=0.0, z=0.0):
         """Translate `bone` by (x, y, z) armature units from its rest position."""

@@ -21,7 +21,7 @@ Poses are dicts {bone: (location, quaternion)}; everything is baked into one Act
 import math
 from types import SimpleNamespace
 
-from mathutils import Quaternion, Vector
+from mathutils import Euler, Quaternion, Vector
 
 from . import actions as A
 from .rig import iter_fcurves, lerp, smoothstep
@@ -292,8 +292,11 @@ class Performance:
         r.begin_action(name)  # ---- pass 2
         for f in range(n + 1):
             apply(r, poses[f])
-            for bone, (ax, ay) in hair[f].items():
-                r.rot(bone, x=math.degrees(ax), y=math.degrees(ay))
+            cum_x = cum_y = 0.0
+            for bone, (ax, ay) in hair[f].items():    # chain order; swing accumulates down the chain
+                cum_x += ax
+                cum_y += ay
+                r.set_abs_delta(bone, Euler((cum_x, cum_y, 0.0), "XYZ").to_matrix())
             r.key(f, settle=False)
             arm_obj.location = (base_loc.x + track[f][0], base_loc.y + track[f][1], 0.0)
             arm_obj.rotation_euler = (0, 0, track[f][2])
@@ -304,9 +307,12 @@ class Performance:
         return track
 
     def _simulate_hair(self, head, track):
-        """Damped springs (one per ponytail bone) driven by the head's acceleration in the
-        character's own frame. Forward acceleration swings the tip back; sideways
-        acceleration swings it out. Returns [{bone: (pitch, roll)}] per frame."""
+        """Ponytail secondary motion. The chain hangs by gravity in *world* terms (it does
+        not tilt up when the head pitches), swings from the head's acceleration through
+        damped springs, and streams backward a little with speed (air drag).
+
+        Returns [{bone: (pitch, roll)}] per frame: each bone's swing relative to hanging,
+        which `bake` applies as an absolute rotation."""
         r, dt = self.r, 1.0 / self.fps
         bones = [f"Ponytail.{i}" for i in range(1, 9) if f"Ponytail.{i}" in r.bones]
         if not bones:
@@ -316,29 +322,31 @@ class Performance:
         for f in range(m):
             a, b, c = head[max(f - 1, 0)], head[f], head[min(f + 1, m - 1)]
             acc.append((a - 2 * b + c) / (dt * dt))
-        # light smoothing so single-frame spikes (foot strikes) don't whip the hair
-        acc = [sum((acc[min(max(f + k, 0), m - 1)] for k in (-1, 0, 1)), Vector()) / 3 for f in range(m)]
+        acc = [sum((acc[min(max(f + k, 0), m - 1)] for k in (-2, -1, 0, 1, 2)), Vector()) / 5 for f in range(m)]
         state = {b: [0.0, 0.0, 0.0, 0.0] for b in bones}  # pitch, pitch', roll, roll'
         out = []
         for f in range(m):
             yaw = track[f][2]
             fwd = Vector((math.sin(yaw), -math.cos(yaw), 0))
             left = Vector((math.cos(yaw), math.sin(yaw), 0))
+            vel = (head[min(f + 1, m - 1)] - head[max(f - 1, 0)]) / (2 * dt)
+            speed_f = vel.dot(fwd)                       # signed forward speed of the head
+            wind = max(-0.05, min(0.12, 0.022 * speed_f))  # radians per segment, streams back when running
             a_f, a_l = acc[f].dot(fwd), acc[f].dot(left)
             frame = {}
             for i, b in enumerate(bones):
-                w = 2 * math.pi * (3.0 - 0.5 * i)  # natural frequency, lower toward the tip
-                z = 0.30                           # damping ratio
-                k = 0.04                           # response to acceleration (rad per m/s^2)
+                w = 2 * math.pi * (3.2 - 0.5 * i)  # natural frequency, lower toward the tip
+                z = 0.35                           # damping ratio
+                k = 0.010                          # response to acceleration (rad per m/s^2)
                 st = state[b]
-                for _ in range(4):                 # sub-steps keep the integration stable
+                for _ in range(4):
                     h = dt / 4
-                    st[1] += h * (w * w * (k * a_f - st[0]) - 2 * z * w * st[1])
+                    st[1] += h * (w * w * (k * a_f + wind - st[0]) - 2 * z * w * st[1])
                     st[0] += h * st[1]
                     st[3] += h * (w * w * (k * a_l - st[2]) - 2 * z * w * st[3])
                     st[2] += h * st[3]
-                st[0] = max(-0.5, min(0.5, st[0]))
-                st[2] = max(-0.5, min(0.5, st[2]))
+                st[0] = max(-0.22, min(0.30, st[0]))
+                st[2] = max(-0.22, min(0.22, st[2]))
                 frame[b] = (st[0], st[2])
             out.append(frame)
         return out

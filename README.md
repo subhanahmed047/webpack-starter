@@ -7,6 +7,10 @@ as code. Everything runs headless through the `bpy` module -- no Blender install
 ![sit down](docs/previews/rain_sit_down.png)
 ![walk](docs/previews/rain_walk.png)
 
+## Continuous performance
+
+`python blender/showcase.py` bakes one 34 s take (walk, pivot, sit, stand, jump, walk, run, slow, wave) and renders it: [docs/previews/rain_showcase.mp4](docs/previews/rain_showcase.mp4). Walk/run/stand are one speed-driven gait; posture clips are cross-faded per bone (see `anim_lab/sequencer.py`).
+
 ## Run it
 
 ```bash

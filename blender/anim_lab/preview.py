@@ -7,7 +7,9 @@ from . import scene
 
 # per-action camera framing: (zoom_out, target height as a fraction of body height)
 FRAMING = {"jump": (1.45, 0.62)}
-SIDE_VIEW = {"walk", "run", "jump", "sit_down", "stand_up", "crouch", "punch"}
+SIDE_VIEW = {"walk", "run", "jump", "sit_down", "stand_up", "crouch", "punch",
+             "mc_walk", "mc_jog", "mc_sprint", "mc_sit_down", "mc_stand_up", "mc_sit_idle",
+             "mc_jump_start", "mc_jump_land"}
 
 
 def _frames(action, n):
@@ -29,7 +31,7 @@ def render_action(rig, action, outdir, n_frames=8, view=None, chair=None, size=(
     scene.render_settings(*size)
     for o in bpy.data.objects:
         if o.name.startswith("Chair"):
-            o.hide_render = action.name not in ("sit_down", "stand_up")
+            o.hide_render = action.name not in ("sit_down", "stand_up", "mc_sit_down", "mc_stand_up", "mc_sit_idle")
     paths = []
     for f in _frames(action, n_frames):
         bpy.context.scene.frame_set(f)

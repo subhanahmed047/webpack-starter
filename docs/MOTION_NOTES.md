@@ -17,3 +17,27 @@ single number.
 
 Not done (would need motion-capture data or hand animation): weight shift before sitting,
 hands pushing off the seat, true turn-steps, finger/face/eye motion, cloth.
+
+
+## Round 2: why procedural was not enough, and what replaced it
+
+Feedback after round 1: walking "slightly better", running "funny", ponytail "still pointing up".
+
+* **Running looked wrong** because a sine-based cycle has none of the things that make a run
+  read as a run: asymmetric stance/flight timing, a teardrop foot path, trunk twist, arm
+  fold that follows the swing. Tuning numbers cannot fix that, so locomotion, sitting,
+  standing and jumping now come from professionally keyframed clips (Quaternius' Universal
+  Animation Library, CC0) retargeted onto the rig: `anim_lab/retarget.py`.
+  * pelvis / spine / head: absolute rotation relative to rest is copied; pelvis translation
+    scaled by leg length. Arms: directions are copied. Legs: IK targets + ankle pitch/yaw.
+  * Natural speeds were *measured* from the clips' own planted-foot sweep (walk 0.84 m/s,
+    jog 5.3 m/s, sprint 8.1 m/s), not taken from the root-motion export.
+* **Speed changes** blend loops with cadence and stride solved so ground speed matches
+  (`mocap_sequencer._blend_info`); below walking speed the stride shrinks so stops end in a stand.
+* **Foot locking on every pose**: a planted sole is latched in world space; the ankle rolls
+  about heel/ball on top of the latched base. If a foot lags its target by more than 14 cm,
+  it takes a corrective step while the other stays planted (this is what lets clips that
+  start in different stances chain together). The pelvis lowers if a leg would overstretch.
+* **Hair**: the ponytail chain is world-referenced (gravity keeps it hanging however the
+  head pitches), with gentle spring swing from head acceleration and a little drag-streaming
+  at speed. Before, springs were relative to the head and could swing the tip upward.

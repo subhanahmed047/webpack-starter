@@ -16,10 +16,11 @@ sys.path.insert(0, HERE)
 import bpy  # noqa: E402
 from mathutils import Vector  # noqa: E402
 
-from anim_lab import actions, humanoid, rig as rigmod, scene, sequencer, swap  # noqa: E402
+from anim_lab import actions, humanoid, mocap_sequencer, retarget, rig as rigmod, scene, sequencer, swap  # noqa: E402
 
-DURATION = 35.6
+DURATION = 36.8
 T_SIT = 10.8
+LIB = os.path.join(HERE, "assets", "animations", "UAL1_Standard.glb")
 
 
 def choreography(perf):
@@ -38,6 +39,30 @@ def choreography(perf):
     perf.seg(T_SIT + 8.14, "loco")
     perf.seg(T_SIT + 21.7, "clip", "wave")
     perf.seg(T_SIT + 23.7, "loco")
+
+
+def choreography_mocap(perf):
+    """Timeline for the retargeted-clip performance. Speeds are in m/s."""
+    t_sit, t_stand, t_jump, t_away, t_wave = 11.1, 14.0, 15.7, 18.7, 33.7
+    jr = 1.25  # playback rate of the jump clips
+    perf.speed((0, 0), (1.2, 0), (2.6, 0.8), (5.8, 0.8), (7.4, 0.0),                 # walk up, stop short of the chair
+               (9.6, 0.0), (9.9, -0.5), (10.5, -0.5), (10.8, 0.0),                     # after turning: back up to the seat
+               (t_away, 0), (t_away + 1.0, 0.8), (t_away + 3.2, 0.8), (t_away + 6.0, 4.4),
+               (t_away + 9.0, 4.4), (t_away + 11.5, 0.8), (t_away + 13.0, 0.8), (t_away + 14.8, 0.0))
+    perf.heading((0, 0.0), (7.5, 0.0), (9.3, math.pi))                                # pivot: chair is behind
+    perf.seg(0.0, "loco")
+    perf.seg(t_sit, "clip", "mc_sit_down")
+    perf.seg(t_sit + 31 / 24, "sitidle")
+    perf.seg(t_stand, "clip", "mc_stand_up")
+    perf.seg(t_stand + 1.0, "loco")
+    perf.seg(t_jump, "clip", "mc_jump_start", jr)
+    t_land = t_jump + 32 / 24 / jr
+    perf.seg(t_land, "clip", "mc_jump_land", jr)
+    perf.seg(t_land + 30 / 24 / jr, "loco")
+    perf.jump_arc(t_jump + 16 / 24 / jr, t_land + 4 / 24 / jr, 0.45)                  # airborne: takeoff -> touchdown
+    perf.seg(t_wave, "clip", "wave")
+    perf.seg(t_wave + 2.0, "loco")
+    return t_sit
 
 
 def smooth_track(track, fps, sigma=0.9):
@@ -66,6 +91,7 @@ def main():
     ap.add_argument("--samples", type=int, default=16)
     ap.add_argument("--stills", type=int, help="render only N evenly spaced stills (quick check)")
     ap.add_argument("--no-render", action="store_true")
+    ap.add_argument("--procedural", action="store_true", help="use the hand-written procedural motion instead of the retargeted clips")
     ap.add_argument("--times", type=float, nargs="*", help="render stills at these times (s)")
     ap.add_argument("--az", type=float, default=58, help="camera azimuth in degrees (90 = pure side view)")
     args = ap.parse_args()
@@ -78,20 +104,32 @@ def main():
     arm = humanoid.build_armature(profile)
     swap.load_and_bind(profile, arm, HERE)
     r = rigmod.find_rig()
-    clips = {fn.__name__: fn(r) for fn in actions.ALL}
-
-    perf = sequencer.Performance(r, clips)
-    perf.fps = args.fps
-    choreography(perf)
+    use_mocap = not args.procedural and os.path.exists(LIB)
+    if use_mocap:
+        clips = retarget.add_clips(r, LIB)
+        clips["wave"] = actions.wave(r)
+        perf = mocap_sequencer.MocapPerformance(r, clips)
+        perf.fps = args.fps
+        t_sit = choreography_mocap(perf)
+    else:
+        clips = {fn.__name__: fn(r) for fn in actions.ALL}
+        perf = sequencer.Performance(r, clips)
+        perf.fps = args.fps
+        choreography(perf)
+        t_sit = T_SIT
     track = perf.bake(DURATION)
     n = len(track)
 
     # world dressing: floor, chair at the spot where the character sits, lights
-    sit_frame = int(T_SIT * args.fps)
+    sit_frame = int(t_sit * args.fps)
     sx, sy, syaw = track[sit_frame]
     scene.add_ground()
-    holder = scene.add_chair(r.unit, r.seat_z)
-    holder.location = (sx, sy + arm.location.y, 0)
+    if use_mocap:
+        hip = perf.sit_geometry()                      # where the pelvis lands when seated (armature-local)
+        holder = scene.add_chair(r.unit, hip.z - 0.10, (hip.y - 0.13, hip.y + 0.40))
+    else:
+        holder = scene.add_chair(r.unit, r.seat_z)
+    holder.location = (arm.location.x + sx, arm.location.y + sy, 0) if use_mocap else (sx, sy + arm.location.y, 0)
     holder.rotation_euler = (0, 0, syaw)
     scene.setup_lighting()
 

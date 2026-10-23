@@ -11,10 +11,11 @@ sc = bpy.context.scene
 fps = sc.render.fps
 windows = {
     "walk in (3.0-5.0s)": (3.0, 5.0),
-    "pivot on the spot (7.8-9.3s)": (7.8, 9.3),
-    "back-step to chair (9.4-10.7s)": (9.4, 10.7),
-    "walk away (21.0-22.5s)": (21.0, 22.5),
+    "stop + pivot (7.0-9.4s)": (7.0, 9.4),
+    "back-step (9.6-10.9s)": (9.6, 10.9),
+    "walk away (20.5-22.0s)": (20.5, 22.0),
     "run (25.0-27.0s)": (25.0, 27.0),
+    "slow down (29.6-31.8s)": (29.6, 31.8),
 }
 import json
 import mathutils

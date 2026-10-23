@@ -287,10 +287,14 @@ class Performance:
             apply(r, pose)
             r.sync()
             head.append(arm_obj.matrix_world @ r.bones["Head"].head)
-        hair = self._simulate_hair(head, track)
+        return self._write(poses, head, track, [0.0] * len(poses), base_loc, name)
 
-        r.begin_action(name)  # ---- pass 2
-        for f in range(n + 1):
+    def _write(self, poses, head, track, lift, base_loc, name):
+        """Pass 2: simulate the ponytail from the head's motion, then key every frame."""
+        r, arm_obj = self.r, self.r.obj
+        hair = self._simulate_hair(head, track)
+        r.begin_action(name)
+        for f in range(len(poses)):
             apply(r, poses[f])
             cum_x = cum_y = 0.0
             for bone, (ax, ay) in hair[f].items():    # chain order; swing accumulates down the chain
@@ -298,7 +302,7 @@ class Performance:
                 cum_y += ay
                 r.set_abs_delta(bone, Euler((cum_x, cum_y, 0.0), "XYZ").to_matrix())
             r.key(f, settle=False)
-            arm_obj.location = (base_loc.x + track[f][0], base_loc.y + track[f][1], 0.0)
+            arm_obj.location = (base_loc.x + track[f][0], base_loc.y + track[f][1], lift[f])
             arm_obj.rotation_euler = (0, 0, track[f][2])
             arm_obj.keyframe_insert("location", frame=f)
             arm_obj.keyframe_insert("rotation_euler", frame=f)

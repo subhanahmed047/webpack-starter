@@ -56,9 +56,9 @@ def add_ground(checker=True):
     return o
 
 
-def add_chair(u=1.0, seat_z=None):
+def add_chair(u=1.0, seat_z=None, y_range=None):
     wood = _material("Chair", (0.55, 0.33, 0.16, 1))
-    y0, y1 = SEAT_Y[0] * u, SEAT_Y[1] * u
+    y0, y1 = y_range if y_range else (SEAT_Y[0] * u, SEAT_Y[1] * u)  # y_range in metres, armature-local
     sz = seat_z if seat_z is not None else SEAT_Z * u
     cy, depth = (y0 + y1) / 2, y1 - y0
     t = 0.08 * u

@@ -42,6 +42,7 @@ class Rig:
         self.leg_len = (self.profile.get("hip_z", 0.53 * H) - self.profile.get("ankle_z", 0.05 * H)) / self.unit
         self.hip_x = self.profile.get("hip_x", 0.07 * H) / self.unit
         self.foot_pose = {"L": (0.0, 0.0), "R": (0.0, 0.0)}  # (pitch toes-up deg, yaw deg)
+        self.foot_meta = {}  # clip name -> [{side: (pitch, yaw)}, ...] recorded when retargeting
 
     # -- pose ---------------------------------------------------------------
     def reset(self):

@@ -13,7 +13,7 @@ sys.path.insert(0, HERE)
 
 import bpy  # noqa: E402
 
-from anim_lab import actions, humanoid, preview, rig as rigmod, scene, swap  # noqa: E402
+from anim_lab import actions, humanoid, preview, retarget, rig as rigmod, scene, swap  # noqa: E402
 
 
 def main():
@@ -24,6 +24,8 @@ def main():
     ap.add_argument("--preview", nargs="*", help="render contact sheets for these actions (none given = all)")
     ap.add_argument("--only", nargs="*", help="build only these actions")
     ap.add_argument("--no-export", action="store_true")
+    ap.add_argument("--mocap", action="store_true", help="also retarget the Universal Animation Library clips (mc_*)")
+    ap.add_argument("--validate", action="store_true", help="check the FK sampler against Blender's evaluation")
     args = ap.parse_args()
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
@@ -44,6 +46,11 @@ def main():
         built[fn.__name__] = fn(r)
         print(f"  action {fn.__name__:10s} frames {built[fn.__name__].frame_start:.0f}-{built[fn.__name__].frame_end:.0f}")
 
+    if args.mocap:
+        lib = os.path.join(HERE, "assets", "animations", "UAL1_Standard.glb")
+        for name, act in retarget.add_clips(r, lib, validate=args.validate).items():
+            built[name] = act
+            print(f"  mocap  {name:14s} frames {act.frame_start:.0f}-{act.frame_end:.0f}")
     scene.add_ground()
     scene.add_chair(r.unit, r.seat_z)
     scene.setup_lighting()

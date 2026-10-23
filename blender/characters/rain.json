@@ -1,0 +1,22 @@
+{
+  "name": "rain",
+  "comment": "Rain (c) Blender Foundation | studio.blender.org, CC-BY 4.0. Proportions measured from her original rig's deform bones.",
+  "height": 1.62,
+  "y_offset": -0.02,
+  "ankle_z": 0.077,
+  "knee_z": 0.468,
+  "hip_z": 0.856,
+  "waist_z": 0.95,
+  "chest_z": 1.158,
+  "shoulder_z": 1.249,
+  "neck_z": 1.291,
+  "head_top": 1.62,
+  "hip_x": 0.082,
+  "shoulder_x": 0.113,
+  "arm_upper": 0.205,
+  "arm_lower": 0.211,
+  "hand": 0.13,
+  "meshes": ["assets/rain/rain_baked.blend"],
+  "rigid_head": ["eye", "eyebrows", "eyelashes", "gums", "tongue", "hair", "hairband"],
+  "exclude": []
+}

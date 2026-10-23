@@ -1,0 +1,2 @@
+bpy==5.2.3   # Blender as a Python module (needs Python 3.13)
+pillow       # contact sheets / GIF previews only

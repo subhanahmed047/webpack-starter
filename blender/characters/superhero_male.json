@@ -1,0 +1,25 @@
+{
+  "name": "superhero_male",
+  "comment": "Quaternius Universal Base Characters (CC0): realistic, textured adult male. Proportions measured from the mesh's own joints.",
+  "height": 1.82,
+  "y_offset": 0.04,
+  "ankle_z": 0.086,
+  "knee_z": 0.542,
+  "hip_z": 0.971,
+  "waist_z": 1.072,
+  "chest_z": 1.311,
+  "shoulder_z": 1.456,
+  "neck_z": 1.52,
+  "head_top": 1.82,
+  "hip_x": 0.114,
+  "shoulder_x": 0.212,
+  "arm_upper": 0.251,
+  "arm_lower": 0.243,
+  "hand": 0.23,
+  "meshes": [
+    "assets/superhero_male/Superhero_Male_FullBody.gltf",
+    "assets/superhero_male/Hair_SimpleParted.gltf"
+  ],
+  "rigid_head": ["Eyes", "Eyebrows", "Hair"],
+  "exclude": ["Icosphere"]
+}

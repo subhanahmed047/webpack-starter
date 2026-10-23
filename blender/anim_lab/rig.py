@@ -73,6 +73,51 @@ class Rig:
         self.rot_matrix(upper, r_up)
         self.rot_matrix(lower, r_up.inverted() @ r_lo_abs)  # child rotation composes after parent
 
+    def sync(self):
+        """Evaluate the pose so bone head/tail positions (incl. IK legs) can be read back.
+
+        The action being authored is detached meanwhile: a depsgraph update would otherwise
+        re-apply its keyframes and overwrite the pose we just set.
+        """
+        ad = self.obj.animation_data
+        action, slot = (ad.action, ad.action_slot) if ad else (None, None)
+        if ad:
+            ad.action = None
+        meshes = [(o, o.hide_viewport) for o in bpy.data.objects if o.type == "MESH"]
+        for o, _ in meshes:  # skip evaluating heavy skinned meshes; we only need bone positions
+            o.hide_viewport = True
+        bpy.context.view_layer.update()
+        for o, hidden in meshes:
+            o.hide_viewport = hidden
+        if ad:
+            ad.action = action
+            if slot is not None:
+                ad.action_slot = slot
+
+    def arm_ik(self, side, wrist, pole=(0.8, -0.6, -0.2), twist=0.0):
+        """Two-bone arm IK: put the wrist at `wrist` (armature-space metres).
+
+        `pole` = (out, forward, up) says which way the elbow bends. Call `sync()` first so
+        the shoulder position reflects the torso pose. Falls back to a straight reach if the
+        target is out of range.
+        """
+        s = 1 if side == "L" else -1
+        ub = self.obj.data.bones[f"UpperArm.{side}"]
+        lb = self.obj.data.bones[f"LowerArm.{side}"]
+        l1 = (lb.head_local - ub.head_local).length
+        l2 = (lb.tail_local - lb.head_local).length
+        sh = self.bones[f"UpperArm.{side}"].head.copy()
+        to = Vector(wrist) - sh
+        d = min(max(to.length, abs(l1 - l2) + 1e-4), l1 + l2 - 1e-4)
+        dirn = to.normalized()
+        a = (l1 * l1 - l2 * l2 + d * d) / (2 * d)
+        h = math.sqrt(max(l1 * l1 - a * a, 0.0))
+        pole_v = Vector((s * pole[0], -pole[1], pole[2]))
+        perp = (pole_v - dirn * pole_v.dot(dirn)).normalized()
+        elbow = sh + dirn * a + perp * h
+        end = sh + dirn * d
+        self.aim_chain(f"UpperArm.{side}", f"LowerArm.{side}", elbow - sh, end - elbow, twist)
+
     def move(self, bone, x=0.0, y=0.0, z=0.0):
         """Translate `bone` by (x, y, z) armature units from its rest position."""
         r3 = self._rest3[bone]

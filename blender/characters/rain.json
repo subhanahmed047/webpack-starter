@@ -16,7 +16,23 @@
   "arm_upper": 0.205,
   "arm_lower": 0.211,
   "hand": 0.13,
-  "meshes": ["assets/rain/rain_baked.blend"],
-  "rigid_head": ["eye", "eyebrows", "eyelashes", "gums", "tongue", "hair", "hairband"],
-  "exclude": []
+  "meshes": [
+    "assets/rain/rain_baked.blend"
+  ],
+  "rigid_head": [
+    "eye",
+    "eyebrows",
+    "eyelashes",
+    "gums",
+    "tongue",
+    "hair",
+    "hairband"
+  ],
+  "exclude": [],
+  "ponytail": {
+    "mesh": "hair_ponytail",
+    "root_angle": 28,
+    "tip_angle": 82,
+    "bones": 3
+  }
 }

@@ -82,3 +82,22 @@ def build_armature(profile, name="Armature"):
     bpy.ops.object.mode_set(mode="OBJECT")
     arm_data.display_type = "STICK"
     return obj
+
+
+def add_chain(arm_obj, prefix, points, parent):
+    """Add a connected bone chain `prefix.1..n` through `points` (armature-local coords),
+    parented to `parent`. Used for secondary motion such as a ponytail."""
+    bpy.ops.object.select_all(action="DESELECT")
+    arm_obj.select_set(True)
+    bpy.context.view_layer.objects.active = arm_obj
+    bpy.ops.object.mode_set(mode="EDIT")
+    eb = arm_obj.data.edit_bones
+    prev = eb[parent]
+    for i in range(len(points) - 1):
+        b = eb.new(f"{prefix}.{i + 1}")
+        b.head, b.tail = Vector(points[i]), Vector(points[i + 1])
+        b.parent = prev
+        b.use_connect = i > 0
+        b.use_deform = True
+        prev = b
+    bpy.ops.object.mode_set(mode="OBJECT")

@@ -18,25 +18,26 @@ from mathutils import Vector  # noqa: E402
 
 from anim_lab import actions, humanoid, rig as rigmod, scene, sequencer, swap  # noqa: E402
 
-DURATION = 34.5
-T_SIT = 9.7
+DURATION = 35.6
+T_SIT = 10.8
 
 
 def choreography(perf):
-    # speeds are in reference units / s (walk ~1.2, run ~3.3)
-    perf.speed((0, 0), (1.2, 0), (2.1, 1.2), (5.6, 1.2), (7.6, 0.0),                # walk up to the chair, stop
-               (18.0, 0.0), (18.9, 1.2), (21.5, 1.2), (23.3, 3.3),                     # walk away, speed up
-               (26.0, 3.3), (28.0, 1.2), (29.5, 1.2), (31.0, 0.0))                     # run, slow, walk, stop
+    # Speeds are in reference units / s (walk ~1.2, run ~3.3); negative = walking backwards.
+    perf.speed((0, 0), (1.2, 0), (2.1, 1.2), (5.6, 1.2), (7.6, 0.0),                # walk up, stop short of the chair
+               (9.4, 0.0), (9.7, -0.6), (10.4, -0.6), (10.7, 0.0),                     # after turning: step back to the seat
+               (19.1, 0.0), (20.0, 1.2), (22.6, 1.2), (24.4, 3.3),                     # walk away, speed up
+               (27.1, 3.3), (29.1, 1.2), (30.6, 1.2), (32.1, 0.0))                     # run, slow, walk, stop
     perf.heading((0, 0.0), (7.7, 0.0), (9.3, math.pi))   # pivot 180 deg on the spot: chair is now behind
     perf.seg(0.0, "loco")
     perf.seg(T_SIT, "clip", "sit_down")
-    perf.seg(11.62, "sitidle")
-    perf.seg(13.2, "clip", "stand_up")
-    perf.seg(15.04, "loco")
-    perf.seg(15.8, "clip", "jump")
-    perf.seg(17.84, "loco")
-    perf.seg(31.4, "clip", "wave")
-    perf.seg(33.4, "loco")
+    perf.seg(T_SIT + 1.92, "sitidle")
+    perf.seg(T_SIT + 3.5, "clip", "stand_up")
+    perf.seg(T_SIT + 5.34, "loco")
+    perf.seg(T_SIT + 6.1, "clip", "jump")
+    perf.seg(T_SIT + 8.14, "loco")
+    perf.seg(T_SIT + 21.7, "clip", "wave")
+    perf.seg(T_SIT + 23.7, "loco")
 
 
 def smooth_track(track, fps, sigma=0.9):
@@ -65,6 +66,8 @@ def main():
     ap.add_argument("--samples", type=int, default=16)
     ap.add_argument("--stills", type=int, help="render only N evenly spaced stills (quick check)")
     ap.add_argument("--no-render", action="store_true")
+    ap.add_argument("--times", type=float, nargs="*", help="render stills at these times (s)")
+    ap.add_argument("--az", type=float, default=58, help="camera azimuth in degrees (90 = pure side view)")
     args = ap.parse_args()
     out = os.path.abspath(args.out)
     frames_dir = os.path.join(out, "frames")
@@ -99,7 +102,7 @@ def main():
     cam.data.lens = 35
     bpy.context.scene.camera = cam
     target = smooth_track([(t[0], t[1]) for t in track], args.fps)
-    az, el, dist = math.radians(58), math.radians(9), 3.6 * H
+    az, el, dist = math.radians(args.az), math.radians(9), 3.6 * H
     for f, (tx, ty) in enumerate(target):
         look = Vector((tx, ty, 0.52 * H))
         cam.location = look + Vector((dist * math.sin(az) * math.cos(el),
@@ -118,7 +121,10 @@ def main():
         return
 
     frames = range(n)
-    if args.stills:
+    if args.times:
+        frames = [min(int(t * args.fps), n - 1) for t in args.times]
+        args.stills = len(frames)
+    elif args.stills:
         frames = [round(i * (n - 1) / (args.stills - 1)) for i in range(args.stills)]
     for f in frames:
         path = os.path.join(frames_dir, f"f{f:05d}.png")

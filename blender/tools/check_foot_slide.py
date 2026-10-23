@@ -24,3 +24,24 @@ for label, (t0, t1) in windows.items():
     if slide:
         v = sorted(s for s, _ in slide)
         print(f"{label}: ground-contact foot speed  median {v[len(v)//2]:.3f} m/s   p90 {v[int(len(v)*.9)]:.3f} m/s   ({len(v)} samples)")
+
+# ---- contralateral arm/leg swing: each hand should move opposite to the foot on its side
+import math
+for label, (t0, t1) in {"walk": (3.0, 5.0), "run": (23.8, 25.8)}.items():
+    import mathutils
+    ser = {k: [] for k in ("footL", "handL", "footR", "handR")}
+    for f in range(int(t0 * fps), int(t1 * fps) + 1):
+        sc.frame_set(f)
+        fwd = arm.matrix_world.to_3x3() @ mathutils.Vector((0, -1, 0))  # character's forward in world
+        for side in "LR":
+            foot = arm.matrix_world @ arm.pose.bones[f"LowerLeg.{side}"].tail
+            hand = arm.matrix_world @ arm.pose.bones[f"LowerArm.{side}"].tail
+            hip = arm.matrix_world @ arm.pose.bones["Body"].head
+            ser[f"foot{side}"].append((foot - hip).dot(fwd))
+            ser[f"hand{side}"].append((hand - hip).dot(fwd))
+    def corr(a, b):
+        ma, mb = sum(a) / len(a), sum(b) / len(b)
+        num = sum((x - ma) * (y - mb) for x, y in zip(a, b))
+        return num / math.sqrt(sum((x - ma) ** 2 for x in a) * sum((y - mb) ** 2 for y in b))
+    print(f"{label}: corr(left hand, left foot) = {corr(ser['handL'], ser['footL']):+.2f}   "
+          f"corr(right hand, right foot) = {corr(ser['handR'], ser['footR']):+.2f}   (want strongly negative)")

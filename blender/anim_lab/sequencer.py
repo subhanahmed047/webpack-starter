@@ -132,7 +132,7 @@ class Performance:
     def eff_speed(self, t):
         """Gait speed: real travel speed, or stepping speed while pivoting on the spot."""
         yaw_rate = abs(curve(self.yaw_keys, t + 0.05) - curve(self.yaw_keys, t)) / 0.05
-        return max(curve(self.speed_keys, t), 0.35 * yaw_rate)
+        return max(abs(curve(self.speed_keys, t)), 0.35 * yaw_rate)
 
     # -- evaluation ------------------------------------------------------
     def _segment_pose(self, idx, t, state):
@@ -172,31 +172,88 @@ class Performance:
         return pose
 
     def bake(self, duration, name="performance"):
-        """Key every frame; returns per-frame (x, y, yaw) world transforms."""
+        """Key every frame; returns per-frame (x, y, yaw) world transforms.
+
+        Pass 1 poses the body and records where the head goes (plus world motion). Hair
+        springs are then simulated from the head's acceleration. Pass 2 keys everything.
+        """
         r, fps = self.r, self.fps
         n = int(duration * fps)
-        r.begin_action(name)
-        track, state = [], {"phase": 0.0}
-        x = y = 0.0
         arm_obj = r.obj
         base_loc = Vector(arm_obj.location)
-        for f in range(n + 1):
+        track, poses, head, state = [], [], [], {"phase": 0.0}
+        x = y = 0.0
+        for f in range(n + 1):  # ---- pass 1
             t = f / fps
             sp = curve(self.speed_keys, t)  # real travel speed
             se = self.eff_speed(t)
             gp = gait_params(se, (self.eff_speed(t + 0.05) - se) / 0.05)
             yaw = curve(self.yaw_keys, t)
             if f:  # integrate: phase advance and world position follow the same speed
-                state["phase"] = (state["phase"] + gp["rate"] / fps) % 1.0
+                direction = -1.0 if sp < -0.02 else 1.0  # negative speed = walking backwards
+                state["phase"] = (state["phase"] + direction * gp["rate"] / fps) % 1.0
                 x += math.sin(yaw) * sp * r.unit / fps
                 y += -math.cos(yaw) * sp * r.unit / fps
-            apply(r, self.pose_at(t, state))
-            r.key(f)
+            pose = self.pose_at(t, state)
+            poses.append(pose)
+            track.append((x, y, yaw))
             arm_obj.location = (base_loc.x + x, base_loc.y + y, 0.0)
             arm_obj.rotation_euler = (0, 0, yaw)
+            apply(r, pose)
+            r.sync()
+            head.append(arm_obj.matrix_world @ r.bones["Head"].head)
+        hair = self._simulate_hair(head, track)
+
+        r.begin_action(name)  # ---- pass 2
+        for f in range(n + 1):
+            apply(r, poses[f])
+            for bone, (ax, ay) in hair[f].items():
+                r.rot(bone, x=math.degrees(ax), y=math.degrees(ay))
+            r.key(f)
+            arm_obj.location = (base_loc.x + track[f][0], base_loc.y + track[f][1], 0.0)
+            arm_obj.rotation_euler = (0, 0, track[f][2])
             arm_obj.keyframe_insert("location", frame=f)
             arm_obj.keyframe_insert("rotation_euler", frame=f)
-            track.append((x, y, yaw))
         r.end_action()
         r.obj.animation_data.action = r.action
         return track
+
+    def _simulate_hair(self, head, track):
+        """Damped springs (one per ponytail bone) driven by the head's acceleration in the
+        character's own frame. Forward acceleration swings the tip back; sideways
+        acceleration swings it out. Returns [{bone: (pitch, roll)}] per frame."""
+        r, dt = self.r, 1.0 / self.fps
+        bones = [f"Ponytail.{i}" for i in range(1, 9) if f"Ponytail.{i}" in r.bones]
+        if not bones:
+            return [{} for _ in head]
+        m = len(head)
+        acc = []
+        for f in range(m):
+            a, b, c = head[max(f - 1, 0)], head[f], head[min(f + 1, m - 1)]
+            acc.append((a - 2 * b + c) / (dt * dt))
+        # light smoothing so single-frame spikes (foot strikes) don't whip the hair
+        acc = [sum((acc[min(max(f + k, 0), m - 1)] for k in (-1, 0, 1)), Vector()) / 3 for f in range(m)]
+        state = {b: [0.0, 0.0, 0.0, 0.0] for b in bones}  # pitch, pitch', roll, roll'
+        out = []
+        for f in range(m):
+            yaw = track[f][2]
+            fwd = Vector((math.sin(yaw), -math.cos(yaw), 0))
+            left = Vector((math.cos(yaw), math.sin(yaw), 0))
+            a_f, a_l = acc[f].dot(fwd), acc[f].dot(left)
+            frame = {}
+            for i, b in enumerate(bones):
+                w = 2 * math.pi * (3.0 - 0.5 * i)  # natural frequency, lower toward the tip
+                z = 0.30                           # damping ratio
+                k = 0.04                           # response to acceleration (rad per m/s^2)
+                st = state[b]
+                for _ in range(4):                 # sub-steps keep the integration stable
+                    h = dt / 4
+                    st[1] += h * (w * w * (k * a_f - st[0]) - 2 * z * w * st[1])
+                    st[0] += h * st[1]
+                    st[3] += h * (w * w * (k * a_l - st[2]) - 2 * z * w * st[3])
+                    st[2] += h * st[3]
+                st[0] = max(-0.5, min(0.5, st[0]))
+                st[2] = max(-0.5, min(0.5, st[2]))
+                frame[b] = (st[0], st[2])
+            out.append(frame)
+        return out

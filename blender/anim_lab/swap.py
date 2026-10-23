@@ -114,12 +114,85 @@ def bind_rigid(meshes, arm, bone):
         mod.object = arm
 
 
+def bend_hanging(obj, root_angle, tip_angle, n_bones):
+    """Re-shape a straight hair tube (running along +Y) so it hangs down under gravity.
+
+    The centre line leaves the head at `root_angle` degrees below horizontal and curls to
+    `tip_angle`. Returns (bone_points, t_per_vertex) for building a bone chain + weights.
+    """
+    import math
+
+    from mathutils import Vector
+
+    me = obj.data
+    ys = [v.co.y for v in me.vertices]
+    y0, y1 = min(ys), max(ys)
+    length = y1 - y0
+    root = [v.co for v in me.vertices if v.co.y < y0 + 0.05]
+    cx = sum(c.x for c in root) / len(root)
+    cz = sum(c.z for c in root) / len(root)
+    a0, a1 = math.radians(root_angle), math.radians(tip_angle)
+    phi = lambda t: a0 + (a1 - a0) * t  # noqa: E731
+    steps = 64
+    pts = [Vector((cx, y0, cz))]
+    for i in range(steps):
+        ph = phi((i + 0.5) / steps)
+        pts.append(pts[-1] + Vector((0, math.cos(ph), -math.sin(ph))) * (length / steps))
+
+    def centre(t):
+        k = min(t * steps, steps - 1e-6)
+        i = int(k)
+        return pts[i].lerp(pts[i + 1], k - i)
+
+    ts = []
+    for v in me.vertices:
+        t = min(max((v.co.y - y0) / length, 0.0), 1.0)
+        ph = phi(t)
+        dx, dz = v.co.x - cx, v.co.z - cz
+        v.co = centre(t) + Vector((dx, 0, 0)) + Vector((0, math.sin(ph), math.cos(ph))) * dz
+        ts.append(t)
+    me.update()
+    return [centre(i / n_bones) for i in range(n_bones + 1)], ts
+
+
+def bind_chain(obj, arm, prefix, n_bones, ts):
+    """Weight each vertex to the bones of chain `prefix` by its position along the chain."""
+    groups = [obj.vertex_groups.new(name=f"{prefix}.{i + 1}") for i in range(n_bones)]
+    for vi, t in enumerate(ts):
+        s = t * n_bones
+        for i, g in enumerate(groups):
+            w = max(0.0, 1.0 - abs(s - (i + 0.5)))
+            if i == 0 and s < 0.5:
+                w = 1.0
+            if i == n_bones - 1 and s > n_bones - 0.5:
+                w = 1.0
+            if w > 1e-3:
+                g.add([vi], w, "REPLACE")
+    obj.parent = arm
+    obj.modifiers.new("Armature", "ARMATURE").object = arm
+
+
 def load_and_bind(profile, arm, base_dir, mesh_paths=None):
     """Import every mesh listed in the profile and skin it to `arm`."""
-    smooth, rigid = [], []
+    from . import humanoid
+
+    smooth, rigid, pony = [], [], None
+    spec = profile.get("ponytail")
     for rel in mesh_paths or profile["meshes"]:
         for m in import_character_mesh(os.path.join(base_dir, rel), profile.get("exclude", ())):
-            (rigid if any(k in m.name for k in profile.get("rigid_head", ())) else smooth).append(m)
+            if spec and spec["mesh"] in m.name:
+                pony = m
+            elif any(k in m.name for k in profile.get("rigid_head", ())):
+                rigid.append(m)
+            else:
+                smooth.append(m)
     bind_meshes(smooth, arm)
     bind_rigid(rigid, arm, "Head")
+    if pony is not None:
+        n = spec.get("bones", 3)
+        pts, ts = bend_hanging(pony, spec["root_angle"], spec["tip_angle"], n)
+        off = arm.location
+        humanoid.add_chain(arm, "Ponytail", [p - off for p in pts], "Head")  # after auto-weights
+        bind_chain(pony, arm, "Ponytail", n, ts)
+        rigid.append(pony)
     return smooth + rigid

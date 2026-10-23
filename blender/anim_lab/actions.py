@@ -10,6 +10,8 @@ Legs are IK: feet are moved with `feet`, knees follow the pole targets.
 """
 import math
 
+from mathutils import Vector
+
 from .rig import lerp, smoothstep
 
 SIDES = {"L": 1, "R": -1}
@@ -59,18 +61,24 @@ def stand(r, drop=0.0, lean=0.0, pose=RELAXED):
     arms(r, pose)
 
 
-HANDS_ON_LAP = ((0.12, 0.35, -1.0), (0.10, 1.0, -0.40))
-
-
 def seated(r, t, lean=0.0):
-    """Blend stand (t=0) -> fully seated (t=1). `lean` adds torso pitch."""
-    stand(r, lean=lean, pose=mix(RELAXED, HANDS_ON_LAP, t))
+    """Blend stand (t=0) -> fully seated (t=1). `lean` adds torso pitch. Hands are solved
+    with arm IK so the wrists end up resting on the thighs."""
+    stand(r, lean=lean)
     # pelvis settles so the hip joint rests just above the seat (derived from the profile)
     drop = (r.profile["hip_z"] - (r.seat_z + 0.045 * r.profile["height"])) / r.unit
     r.move("Body", y=SIT_BACK * t, z=-drop * t)
     feet(r, l=(SIT_FOOT_FWD * t, 0, 0), rt=(SIT_FOOT_FWD * t, 0, 0), spread=0.04 * t)
     r.rot("Hips", x=-8 * t)
     r.rot("Abdomen", x=4 * t)
+    r.sync()
+    thigh_r = 0.055 * r.profile["height"]
+    for side in "LR":
+        relaxed = r.bones[f"LowerArm.{side}"].tail.copy()      # wrist with relaxed arms
+        hip = r.bones[f"UpperLeg.{side}"].head
+        knee = r.bones[f"LowerLeg.{side}"].head
+        lap = hip.lerp(knee, 0.55) + Vector((0, 0, thigh_r))   # on top of the thigh
+        r.arm_ik(side, relaxed.lerp(lap, smoothstep(t)), pole=(0.8, -0.6, -0.2))
 
 
 # ------------------------------------------------------------- one-shot moves
@@ -201,11 +209,14 @@ def gait_pose(r, p, h, lift, bob, lean, arm_swing, drop, runness=0.0, head_yaw=0
 
     w = 2 * math.pi * p
     r.move("Body", x=0.04 * math.sin(w), z=-drop - bob * math.cos(2 * w))
-    r.rot("Hips", z=-6 * math.sin(w) * (arm_swing / 40))
-    r.rot("Torso", x=lean, z=8 * math.sin(w) * (arm_swing / 40))
-    r.rot("Head", z=-4 * math.sin(w) + head_yaw, x=-lean * 0.6)
-    # each arm swings opposite to the leg on its side
-    for side, a in (("L", -arm_swing * math.sin(w)), ("R", arm_swing * math.sin(w))):
+    # The left foot is furthest forward at p=0 (forward offset ~ cos w), so the pelvis turns
+    # with the leading leg and the shoulders counter-rotate; each arm swings forward as the
+    # *opposite* leg does (left arm = -cos w, right arm = +cos w).
+    twist = arm_swing / 40
+    r.rot("Hips", z=-6 * math.cos(w) * twist)
+    r.rot("Torso", x=lean, z=8 * math.cos(w) * twist)
+    r.rot("Head", z=-3 * math.cos(w) + head_yaw, x=-lean * 0.6)
+    for side, a in (("L", -arm_swing * math.cos(w)), ("R", arm_swing * math.cos(w))):
         arm(r, side, mix(swing(a, bend=0.35), run_arm(a), runness))
 
 

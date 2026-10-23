@@ -9,7 +9,7 @@ ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 
 # Chair geometry in armature units (character faces -Y; chair sits behind it at +Y).
 SEAT_Z = 0.58
-SEAT_Y = (-0.1, 0.8)
+SEAT_Y = (0.14, 1.02)  # front edge sits just behind the heels so there is room to turn and sit
 
 
 def reset_scene():

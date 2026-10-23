@@ -29,6 +29,8 @@ NEEDED = ["pelvis", "spine_01", "spine_03", "neck_01", "Head", "clavicle_l", "cl
           "upperarm_l", "upperarm_r", "lowerarm_l", "lowerarm_r", "hand_l", "hand_r",
           "thigh_l", "thigh_r", "foot_l", "foot_r", "ball_l", "ball_r"]
 
+HEAD_STABILISE = 0.6   # fraction of the head's forward/back pitch cancelled (keeps the gaze level)
+
 # source clip -> (our clip name, loops?)
 CLIPS = {
     "Walk_Loop": ("mc_walk", True),
@@ -146,6 +148,16 @@ class Retargeter:
             self.rest_pitch[s] = math.degrees(math.asin(d.z / d.length))
             self.rest_yaw[s] = math.degrees(math.atan2(d.x, -d.y))
 
+    def stabilise(self, D, k):
+        """Reduce the forward/back pitch of a head rotation by fraction `k`.
+
+        People keep their gaze roughly level while the trunk flexes (sitting down, running
+        with a lean); copying the head's absolute orientation instead makes it bow with the
+        trunk. Roll and yaw are untouched."""
+        up = D @ Vector((0.0, 0.0, 1.0))
+        pitch = math.asin(max(-1.0, min(1.0, -up.y)))     # forward lean positive
+        return Matrix.Rotation(-k * pitch, 3, "X") @ D
+
     def delta(self, fd, bone):
         """Absolute rotation of a source bone relative to its rest."""
         return fd[bone][1] @ self.rest[bone][1].inverted()
@@ -161,7 +173,7 @@ class Retargeter:
         r.set_abs_delta("Abdomen", self.delta(fd, "spine_01"))
         r.set_abs_delta("Torso", self.delta(fd, "spine_03"))
         r.set_abs_delta("Neck", self.delta(fd, "neck_01"))
-        r.set_abs_delta("Head", self.delta(fd, "Head"))
+        r.set_abs_delta("Head", self.stabilise(self.delta(fd, "Head"), HEAD_STABILISE))
         for s, side in (("l", "L"), ("r", "R")):
             r.set_abs_delta(f"Shoulder.{side}", self.delta(fd, f"clavicle_{s}"))
             up = fd[f"lowerarm_{s}"][0] - fd[f"upperarm_{s}"][0]
@@ -177,8 +189,29 @@ class Retargeter:
             r.move_m(f"PoleTarget.{side}", pole - self.pole_rest[side])
             toe = fd[f"ball_{s}"][0] - fd[f"foot_{s}"][0]
             pitch = math.degrees(math.asin(toe.z / toe.length)) - self.rest_pitch[s]
-            yaw = math.degrees(math.atan2(toe.x, -toe.y)) - self.rest_yaw[s]
+            # Yaw from the foot's *lateral* axis: it stays horizontal however steeply the foot
+            # pitches. (Using the toe direction flips +/-180 deg when the foot points straight down.)
+            lat = self.delta(fd, f"foot_{s}") @ Vector((1.0, 0.0, 0.0))
+            yaw = math.degrees(math.atan2(lat.y, lat.x))
             r.foot_pose[side] = (pitch, yaw)
+
+
+def _smooth_meta(meta, loop):
+    """Binomial 5-tap smoothing of the foot pitch/yaw series. The source's ankle animation has
+    small high-frequency flicks (especially at toe-off) that read as wobble on a different
+    character. Loops wrap around; one-shots clamp at their ends."""
+    n = len(meta)
+    taps = ((-2, 1), (-1, 4), (0, 6), (1, 4), (2, 1))
+    out = []
+    for i in range(n):
+        acc = {s: [0.0, 0.0] for s in "LR"}
+        for off, w in taps:
+            j = (i + off) % n if loop else min(max(i + off, 0), n - 1)
+            for s in "LR":
+                for k in (0, 1):
+                    acc[s][k] += w * meta[j][s][k] / 16.0
+        out.append({s: tuple(acc[s]) for s in "LR"})
+    return out
 
 
 def add_clips(rig, path, wanted=None, validate=False):
@@ -197,5 +230,5 @@ def add_clips(rig, path, wanted=None, validate=False):
             meta.append(dict(rig.foot_pose))   # (pitch, yaw) per foot; the sequencer re-derives ankles from these
             rig.key(f)          # settles the Ankle bones from foot_pose
         out[name] = rig.end_action(loop=loop)
-        rig.foot_meta[name] = meta
+        rig.foot_meta[name] = _smooth_meta(meta, loop)
     return out

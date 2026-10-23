@@ -41,3 +41,26 @@ Feedback after round 1: walking "slightly better", running "funny", ponytail "st
 * **Hair**: the ponytail chain is world-referenced (gravity keeps it hanging however the
   head pitches), with gentle spring swing from head acceleration and a little drag-streaming
   at speed. Before, springs were relative to the head and could swing the tip upward.
+
+
+## Round 3: fixing what the close-ups showed (feet, sit, jump)
+
+Feedback: foot movement odd when walking, "wobbles" when running; sitting posture / sit-down
+and the jump looked weird. Method this time: render *consecutive* frames close up
+(`tools/render_frames.py`) and print per-frame numbers (`tools/check_foot_jitter.py`).
+
+* **Foot wobble (root cause: a retargeting bug).** Ankle yaw was taken from the direction of
+  the foot bone. When the foot points almost straight down (toe-off, running) that direction
+  is numerically meaningless and flipped between -180 and +180 degrees, spinning the ankle.
+  Yaw now comes from the foot's lateral axis, which stays horizontal at any pitch
+  (frame-to-frame yaw change: hundreds of degrees -> under 5). Foot pitch/yaw are also
+  smoothed (binomial 5-tap) to remove single-frame flicks in the source.
+* **Running** is played at the clip's own natural speed (4.95 m/s) with foot-locking off above
+  2 m/s: contacts last only 3-4 frames there and locking them made the legs bunch.
+* **Sit-down:** the head copied the trunk's absolute orientation, so it bowed toward the
+  floor as the trunk folded. 60% of the head's pitch is now cancelled (gaze stays level).
+* **Jump:** take-off and touch-down frames are read from the clips' own foot data. Before, the
+  legs tucked ~0.4 s before the body left the ground, the airborne period was ~1 s (a
+  game-style 1 m jump), and the Land clip is a deep, heavy crouch. Now the arc is ballistic
+  over a 0.52 s airtime between the real take-off and touch-down frames, the Land clip is
+  started so its cross-fade finishes at touch-down, and its crouch depth is halved.

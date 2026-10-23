@@ -44,22 +44,18 @@ def choreography(perf):
 def choreography_mocap(perf):
     """Timeline for the retargeted-clip performance. Speeds are in m/s."""
     t_sit, t_stand, t_jump, t_away, t_wave = 11.1, 14.0, 15.7, 18.7, 33.7
-    jr = 1.25  # playback rate of the jump clips
     perf.speed((0, 0), (1.2, 0), (2.6, 0.8), (5.8, 0.8), (7.4, 0.0),                 # walk up, stop short of the chair
                (9.6, 0.0), (9.9, -0.5), (10.5, -0.5), (10.8, 0.0),                     # after turning: back up to the seat
-               (t_away, 0), (t_away + 1.0, 0.8), (t_away + 3.2, 0.8), (t_away + 6.0, 4.4),
-               (t_away + 9.0, 4.4), (t_away + 11.5, 0.8), (t_away + 13.0, 0.8), (t_away + 14.8, 0.0))
+               (t_away, 0), (t_away + 1.0, 0.8), (t_away + 3.2, 0.8), (t_away + 6.0, 4.95),
+               (t_away + 9.0, 4.95), (t_away + 11.5, 0.8), (t_away + 13.0, 0.8), (t_away + 14.8, 0.0))
     perf.heading((0, 0.0), (7.5, 0.0), (9.3, math.pi))                                # pivot: chair is behind
     perf.seg(0.0, "loco")
     perf.seg(t_sit, "clip", "mc_sit_down")
     perf.seg(t_sit + 31 / 24, "sitidle")
     perf.seg(t_stand, "clip", "mc_stand_up")
     perf.seg(t_stand + 1.0, "loco")
-    perf.seg(t_jump, "clip", "mc_jump_start", jr)
-    t_land = t_jump + 32 / 24 / jr
-    perf.seg(t_land, "clip", "mc_jump_land", jr)
-    perf.seg(t_land + 30 / 24 / jr, "loco")
-    perf.jump_arc(t_jump + 16 / 24 / jr, t_land + 4 / 24 / jr, 0.45)                  # airborne: takeoff -> touchdown
+    t_hop_end = perf.add_jump(t_jump)                                                 # standing hop
+    perf.seg(t_hop_end, "loco")
     perf.seg(t_wave, "clip", "wave")
     perf.seg(t_wave + 2.0, "loco")
     return t_sit

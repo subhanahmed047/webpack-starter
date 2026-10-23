@@ -27,6 +27,7 @@ SRC_LEG = 0.828                     # source hip->ankle length at rest (metres)
 LOCO = [("mc_walk", 0.84, 0.75), ("mc_jog", 5.26, 1.09), ("mc_sprint", 8.11, 1.50)]
 CONTACT_THR = 0.03                  # metres: sole height under which a foot counts as planted
 RELEASE_TIME = 0.18                 # seconds over which a released foot rejoins its clip path
+LATCH_MAX_SPEED = 2.0               # m/s: above this (running) clips are played as-is, without foot locking
 STEP_ERROR = 0.14                   # metres a planted foot may lag its target before it takes a corrective step
 STEP_TIME, STEP_LIFT = 0.42, 0.07   # duration (s) and clearance (m) of a corrective step
 
@@ -89,13 +90,50 @@ class MocapPerformance(Performance):
         self.jumps = []                                           # (t_takeoff, t_land, apex metres)
 
     # ------------------------------------------------------------------ authoring
-    def seg(self, t, kind, name=None, rate=1.0):
-        self.segments.append((t, kind, name, rate))
+    def seg(self, t, kind, name=None, rate=1.0, f_from=0.0, f_to=None, zscale=1.0):
+        """Add a segment. For clips: play from frame `f_from` (optionally cut at `f_to`) at
+        `rate`; `zscale` < 1 softens a downward pelvis excursion (landings)."""
+        self.segments.append((t, kind, name, rate, f_from, f_to, zscale))
 
     def jump_arc(self, t_takeoff, t_land, apex):
         self.jumps.append((t_takeoff, t_land, apex))
 
+    def air_frames(self, name):
+        """(first airborne frame, first grounded frame) of a clip, from its own foot data."""
+        d, r = self.data[name], self.r
+        air = []
+        for f in range(d.n + 1):
+            pose = d.at(float(f))
+            soles = []
+            for side in "LR":
+                a = self.ankle_rest[side].z + (r._rest3[f"Foot.{side}"] @ pose.pose[f"Foot.{side}"][0]).z
+                p = math.radians(pose.foot[side][0])
+                soles.append(a + min(-self.heel * math.sin(p), self.ball * math.sin(p)) - self.az * math.cos(p))
+            air.append(min(soles) > CONTACT_THR)
+        take = next((f for f, a in enumerate(air) if a), 0)
+        touch = next((f for f, a in enumerate(air) if not a), 0)
+        return take, touch
+
+    def add_jump(self, t0, air=0.52, rate=1.0, land_rate=1.15, land_depth=0.5, max_apex=0.45):
+        """A standing hop from the Jump_Start / Jump_Land clips, driven by the airtime.
+
+        The feet leave the ground at the Start clip's own take-off frame and the body follows a
+        ballistic arc for `air` seconds. The Land clip is started early enough that its
+        cross-fade finishes at touch-down (the clip begins with the toes about to land), and
+        `land_depth` < 1 softens its crouch. Returns the time the hop is finished."""
+        take, _ = self.air_frames("mc_jump_start")
+        _, touch = self.air_frames("mc_jump_land")
+        t_up = t0 + take / 24 / rate
+        t_down = t_up + air
+        t_land = t_down - XFADE / 2 - touch / 24 / land_rate        # Land clip takes over here
+        cut = max((t_land - t0) * 24 * rate, take + 2.0)
+        self.seg(t0, "clip", "mc_jump_start", rate, 0.0, cut)
+        self.seg(t_land, "clip", "mc_jump_land", land_rate, 0.0, None, land_depth)
+        self.jump_arc(t_up, t_down, min(max_apex, 9.81 * air * air / 8))
+        return t_land + 30 / 24 / land_rate
+
     def lift_at(self, t):
+        """Height of the body above the ground at time `t` (metres): ballistic arcs of hops."""
         for t0, t1, apex in self.jumps:
             if t0 < t < t1:
                 u = (t - t0) / (t1 - t0)
@@ -148,7 +186,7 @@ class MocapPerformance(Performance):
     # ------------------------------------------------------------------ kinematics
     def _kinematics(self, n):
         k = type("Kin", (), {})()
-        k.sp, k.se, k.yaw, k.phase, k.pos, k.info = [], [], [], [], [], []
+        k.sp, k.se, k.yaw, k.phase, k.pos, k.info, k.latch = [], [], [], [], [], [], []
         fps = self.fps
         phase, x, y = self.ds[0] if self.ds else 0.0, 0.0, 0.0   # start standing, both feet down
         for f in range(n + 1):
@@ -171,6 +209,7 @@ class MocapPerformance(Performance):
             k.phase.append(phase)
             k.pos.append((x, y))
             k.info.append(dict(weights=weights, cps=cps, stride=stride))
+            k.latch.append(se < LATCH_MAX_SPEED)
         return k
 
     # ------------------------------------------------------------------ poses
@@ -186,7 +225,7 @@ class MocapPerformance(Performance):
             pd.pose[bone] = (r._rest3[bone].inverted() @ d, q)
 
     def _segment(self, idx, t, state):
-        t0, kind, name, rate = self.segments[idx]
+        t0, kind, name, rate, f_from, f_to, zscale = self.segments[idx]
         f, kin = state["f"], state["kin"]
         if kind == "loco":
             info, se = kin.info[f], kin.se[f]
@@ -207,7 +246,18 @@ class MocapPerformance(Performance):
             return blended
         if kind == "sitidle":
             return self.data["mc_sit_idle"].at((t - t0) * self.fps, loop=True)
-        return self.data[name].at((t - t0) * self.fps * rate)
+        frame = f_from + (t - t0) * self.fps * rate
+        if f_to is not None:
+            frame = min(frame, f_to)
+        pd = self.data[name].at(frame)
+        if zscale != 1.0:                       # soften a downward pelvis excursion (e.g. landing crouch)
+            rb = self.r._rest3["Body"]
+            loc, q = pd.pose["Body"]
+            d = rb @ loc
+            if d.z < 0.0:
+                d.z *= zscale
+            pd.pose["Body"] = (rb.inverted() @ d, q)
+        return pd
 
     def pose_at(self, t, state):
         segs = self.segments
@@ -241,7 +291,7 @@ class MocapPerformance(Performance):
             pitch, foot_yaw = pd.foot[side]
             p = math.radians(pitch)
             sole = a.z + lift + min(-self.heel * math.sin(p), self.ball * math.sin(p)) - self.az * math.cos(p)
-            contact = sole < CONTACT_THR
+            contact = sole < CONTACT_THR and kin.latch[f]
             tgt = Vector((ox + cs * a.x - sn * a.y, oy + sn * a.x + cs * a.y))   # world xy wanted by the clip
             tgt_yaw = yaw + math.radians(foot_yaw)
             # While the sole is planted the *foot* is fixed and the ankle rolls about the heel

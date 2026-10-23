@@ -64,3 +64,11 @@ and the jump looked weird. Method this time: render *consecutive* frames close u
   game-style 1 m jump), and the Land clip is a deep, heavy crouch. Now the arc is ballistic
   over a 0.52 s airtime between the real take-off and touch-down frames, the Land clip is
   started so its cross-fade finishes at touch-down, and its crouch depth is halved.
+* **Impossible ankle in the air (found from a screenshot).** The run's heel-kick folded the
+  foot forward under the shin: `tools/check_ankle_angle.py` measured the ankle (shin-to-foot)
+  at up to 172 degrees; a human ankle tops out near 140. Cause: foot orientation was forced to
+  the source's *world* pitch, which is only meaningful when the sole is on the ground - with
+  different leg proportions (and IK solving the knee separately) the same world pitch becomes
+  an impossible ankle bend. Fix: record the ankle rotation *relative to the shin* from the
+  source and use it in the air, blending to the world-referenced pitch as the sole nears the
+  ground (planted -> world, airborne -> relative). Run ankle range is now 68-119 degrees.

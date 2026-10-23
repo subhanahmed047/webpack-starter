@@ -43,6 +43,9 @@ class Rig:
         self.hip_x = self.profile.get("hip_x", 0.07 * H) / self.unit
         self.foot_pose = {"L": (0.0, 0.0), "R": (0.0, 0.0)}  # (pitch toes-up deg, yaw deg)
         self.foot_meta = {}  # clip name -> [{side: (pitch, yaw)}, ...] recorded when retargeting
+        self.foot_rel_meta = {}  # clip name -> [{side: Matrix3 ankle rotation relative to the shin}, ...]
+        self.foot_rel = {"L": None, "R": None}   # ankle rotation relative to the shin (used in the air)
+        self.foot_wabs = {"L": 1.0, "R": 1.0}    # weight of the world-referenced pitch/yaw (1 = planted)
 
     # -- pose ---------------------------------------------------------------
     def reset(self):
@@ -52,6 +55,8 @@ class Rig:
             pb.rotation_quaternion = (1, 0, 0, 0)
             pb.scale = (1, 1, 1)
         self.foot_pose = {"L": (0.0, 0.0), "R": (0.0, 0.0)}
+        self.foot_rel = {"L": None, "R": None}
+        self.foot_wabs = {"L": 1.0, "R": 1.0}
 
     def rot(self, bone, x=0.0, y=0.0, z=0.0, order="XYZ"):
         """Rotate `bone` by Euler degrees about armature axes (applied in `order`)."""
@@ -143,7 +148,17 @@ class Rig:
             shin = self.bones[f"LowerLeg.{side}"]
             r_parent = shin.matrix.to_3x3() @ self._rest3[shin.name].inverted()
             r_des = Matrix.Rotation(math.radians(yaw), 3, "Z") @ Matrix.Rotation(math.radians(-pitch), 3, "X")
-            self.rot_matrix(f"Ankle.{side}", r_parent.inverted() @ r_des)
+            local = r_parent.inverted() @ r_des            # world-referenced: sole flat/rolling on the ground
+            rel = self.foot_rel[side]
+            if rel is not None and self.foot_wabs[side] < 1.0:
+                # In the air the ankle copies the source's angle *relative to the shin*: the world
+                # pitch of a foot is only meaningful when planted, and with different leg
+                # proportions it would fold the ankle into an impossible angle.
+                q = rel.to_quaternion().slerp(local.to_quaternion(), self.foot_wabs[side]) \
+                    if rel.to_quaternion().dot(local.to_quaternion()) >= 0 else \
+                    rel.to_quaternion().slerp(-local.to_quaternion(), self.foot_wabs[side])
+                local = q.to_matrix()
+            self.rot_matrix(f"Ankle.{side}", local)
 
     def arm_ik(self, side, wrist, pole=(0.8, -0.6, -0.2), twist=0.0):
         """Two-bone arm IK: put the wrist at `wrist` (armature-space metres).

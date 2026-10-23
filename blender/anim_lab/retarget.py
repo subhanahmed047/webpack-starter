@@ -27,7 +27,7 @@ from .rig import iter_fcurves
 # bones whose pose we read from the source
 NEEDED = ["pelvis", "spine_01", "spine_03", "neck_01", "Head", "clavicle_l", "clavicle_r",
           "upperarm_l", "upperarm_r", "lowerarm_l", "lowerarm_r", "hand_l", "hand_r",
-          "thigh_l", "thigh_r", "foot_l", "foot_r", "ball_l", "ball_r"]
+          "thigh_l", "thigh_r", "calf_l", "calf_r", "foot_l", "foot_r", "ball_l", "ball_r"]
 
 HEAD_STABILISE = 0.6   # fraction of the head's forward/back pitch cancelled (keeps the gaze level)
 
@@ -133,6 +133,7 @@ def load_source(path, validate=False):
 class Retargeter:
     def __init__(self, rig, rest):
         self.r, self.rest = rig, rest
+        self.foot_rel = {"L": None, "R": None}
         p = rig.profile
         src_leg = rest["thigh_l"][0].z - rest["foot_l"][0].z
         self.scale = (p["hip_z"] - p["ankle_z"]) / src_leg           # leg-length ratio
@@ -194,6 +195,8 @@ class Retargeter:
             lat = self.delta(fd, f"foot_{s}") @ Vector((1.0, 0.0, 0.0))
             yaw = math.degrees(math.atan2(lat.y, lat.x))
             r.foot_pose[side] = (pitch, yaw)
+            # ankle rotation relative to the shin (rest-referenced), for use when the foot is airborne
+            self.foot_rel[side] = self.delta(fd, f"calf_{s}").inverted() @ self.delta(fd, f"foot_{s}")
 
 
 def _smooth_meta(meta, loop):
@@ -224,11 +227,13 @@ def add_clips(rig, path, wanted=None, validate=False):
         if wanted and name not in wanted:
             continue
         rig.begin_action(name)
-        meta = []
+        meta, rel = [], []
         for f, fd in enumerate(frames):
             rt.pose(fd)
             meta.append(dict(rig.foot_pose))   # (pitch, yaw) per foot; the sequencer re-derives ankles from these
+            rel.append(dict(rt.foot_rel))
             rig.key(f)          # settles the Ankle bones from foot_pose
         out[name] = rig.end_action(loop=loop)
         rig.foot_meta[name] = _smooth_meta(meta, loop)
+        rig.foot_rel_meta[name] = rel
     return out

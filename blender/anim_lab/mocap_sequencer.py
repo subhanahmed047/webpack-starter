@@ -35,8 +35,18 @@ STEP_TIME, STEP_LIFT = 0.42, 0.07   # duration (s) and clearance (m) of a correc
 class PoseData:
     """A pose plus the (pitch, yaw) of each foot, which the Ankle bones are derived from."""
 
-    def __init__(self, pose, foot):
+    def __init__(self, pose, foot, rel=None):
         self.pose, self.foot = pose, foot
+        self.rel = rel or {"L": None, "R": None}      # ankle rotation relative to the shin (3x3), or None
+
+
+def _blend_rel(a, b, w):
+    if a is None or b is None:
+        return b if a is None else a
+    qa, qb = a.to_quaternion(), b.to_quaternion()
+    if qa.dot(qb) < 0:
+        qb = -qb
+    return qa.slerp(qb, min(max(w, 0.0), 1.0)).to_matrix()
 
 
 def blend_pd(a, b, w):
@@ -45,7 +55,8 @@ def blend_pd(a, b, w):
     if w >= 1.0:
         return b
     foot = {s: (lerp(a.foot[s][0], b.foot[s][0], w), lerp(a.foot[s][1], b.foot[s][1], w)) for s in "LR"}
-    return PoseData(blend(a.pose, b.pose, w), foot)
+    rel = {s: _blend_rel(a.rel[s], b.rel[s], w) for s in "LR"}
+    return PoseData(blend(a.pose, b.pose, w), foot, rel)
 
 
 class ClipData:
@@ -55,6 +66,7 @@ class ClipData:
         self.cs = ClipSampler(r, action)
         self.n = int(action.frame_end - action.frame_start)
         self.meta = r.foot_meta.get(name)
+        self.rel = r.foot_rel_meta.get(name)
 
     def at(self, frame, loop=False):
         if loop:
@@ -63,10 +75,11 @@ class ClipData:
         if not self.meta:
             return PoseData(pose, {"L": (0.0, 0.0), "R": (0.0, 0.0)})
         i = min(max(int(frame), 0), len(self.meta) - 1)
-        j, u = min(i + 1, len(self.meta) - 1), frame - int(frame)
+        j, u = min(i + 1, len(self.meta) - 1), min(max(frame - int(frame), 0.0), 1.0)
         foot = {s: (lerp(self.meta[i][s][0], self.meta[j][s][0], u),
                     lerp(self.meta[i][s][1], self.meta[j][s][1], u)) for s in "LR"}
-        return PoseData(pose, foot)
+        rel = {s: _blend_rel(self.rel[i][s], self.rel[j][s], u) for s in "LR"} if self.rel else None
+        return PoseData(pose, foot, rel)
 
 
 class MocapPerformance(Performance):
@@ -292,6 +305,8 @@ class MocapPerformance(Performance):
             p = math.radians(pitch)
             sole = a.z + lift + min(-self.heel * math.sin(p), self.ball * math.sin(p)) - self.az * math.cos(p)
             contact = sole < CONTACT_THR and kin.latch[f]
+            r.foot_rel[side] = pd.rel[side]
+            r.foot_wabs[side] = 1.0 - smoothstep((sole + 0.0 - 0.015) / 0.05)   # planted -> world pitch; airborne -> relative
             tgt = Vector((ox + cs * a.x - sn * a.y, oy + sn * a.x + cs * a.y))   # world xy wanted by the clip
             tgt_yaw = yaw + math.radians(foot_yaw)
             # While the sole is planted the *foot* is fixed and the ankle rolls about the heel

@@ -9,25 +9,52 @@ bpy.ops.wm.open_mainfile(filepath=sys.argv[-1])
 arm = bpy.data.objects["Armature"]
 sc = bpy.context.scene
 fps = sc.render.fps
-windows = {"walk (3.0-5.0s)": (3.0, 5.0), "run (23.8-25.8s)": (23.8, 25.8), "walk away (19.5-21.0s)": (19.5, 21.0)}
+windows = {
+    "walk in (3.0-5.0s)": (3.0, 5.0),
+    "pivot on the spot (7.8-9.3s)": (7.8, 9.3),
+    "back-step to chair (9.4-10.7s)": (9.4, 10.7),
+    "walk away (21.0-22.5s)": (21.0, 22.5),
+    "run (25.0-27.0s)": (25.0, 27.0),
+}
+import json
+import mathutils
+
+prof = json.loads(arm["anim_lab_profile_json"])
+H, az = prof["height"], prof["ankle_z"]
+heel_m, ball_m = 0.034 * H, 0.086 * H
+
+
+def contact_points(side):
+    """Heel and ball of the foot: whichever touches the ground should stay put during stance."""
+    pb = arm.pose.bones[f"Ankle.{side}"]
+    head = arm.matrix_world @ pb.head
+    toe_dir = ((arm.matrix_world @ pb.tail) - head).normalized()
+    up = toe_dir.cross(mathutils.Vector((1, 0, 0)) if (arm.matrix_world.to_3x3() @ mathutils.Vector((1, 0, 0))).x > 0
+                       else mathutils.Vector((-1, 0, 0)))
+    up = (toe_dir.cross(arm.matrix_world.to_3x3() @ mathutils.Vector((1, 0, 0)))).normalized()
+    heel = head - heel_m * toe_dir - az * up
+    ball = head + ball_m * toe_dir - az * up
+    return {"heel": heel, "ball": ball}
+
+
 for label, (t0, t1) in windows.items():
-    slide = []
-    prev = {}
+    slide, prev = [], {}
     for f in range(int(t0 * fps), int(t1 * fps) + 1):
         sc.frame_set(f)
         for side in "LR":
-            pb = arm.pose.bones[f"LowerLeg.{side}"]
-            tip = arm.matrix_world @ pb.tail          # ankle, driven by the IK foot target
-            if side in prev and tip.z < 0.085:        # planted (ankle rest height is 0.077)
-                slide.append(((tip - prev[side]).length * fps, side))
-            prev[side] = tip.copy()
+            for part, c in contact_points(side).items():
+                key = (side, part)
+                planted = c.z < 0.012
+                if key in prev and planted and prev[key][1]:
+                    slide.append((c - prev[key][0]).length * fps)
+                prev[key] = (c.copy(), planted)
     if slide:
-        v = sorted(s for s, _ in slide)
-        print(f"{label}: ground-contact foot speed  median {v[len(v)//2]:.3f} m/s   p90 {v[int(len(v)*.9)]:.3f} m/s   ({len(v)} samples)")
+        v = sorted(slide)
+        print(f"{label}: sole-contact speed  median {v[len(v)//2]:.3f} m/s   p90 {v[int(len(v)*.9)]:.3f} m/s   max {v[-1]:.3f}  ({len(v)} samples)")
 
 # ---- contralateral arm/leg swing: each hand should move opposite to the foot on its side
 import math
-for label, (t0, t1) in {"walk": (3.0, 5.0), "run": (23.8, 25.8)}.items():
+for label, (t0, t1) in {"walk": (3.0, 5.0), "run": (25.0, 27.0)}.items():
     import mathutils
     ser = {k: [] for k in ("footL", "handL", "footR", "handR")}
     for f in range(int(t0 * fps), int(t1 * fps) + 1):

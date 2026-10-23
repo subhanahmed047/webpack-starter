@@ -34,5 +34,11 @@
     "root_angle": 28,
     "tip_angle": 82,
     "bones": 3
+  },
+  "foot_meshes": {
+    "rain-shoes": [
+      0.03,
+      0.06
+    ]
   }
 }

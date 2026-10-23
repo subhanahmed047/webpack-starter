@@ -67,6 +67,9 @@ def build_armature(profile, name="Armature"):
         bone(f"UpperLeg.{side}", (hx, 0, hz), (hx, knee_y, kz), "Body")
         bone(f"LowerLeg.{side}", (hx, knee_y, kz), (hx, 0, az), f"UpperLeg.{side}", True)
         bone(f"Foot.{side}", (hx, 0, az), (hx, -0.08 * H, az), "Root")
+        # Ankle: the deforming foot. It hangs off the shin so the sole can stay flat on the
+        # ground (and roll heel -> toe) while the leg angles above it.
+        bone(f"Ankle.{side}", (hx, 0, az), (hx, -0.08 * H, az), f"LowerLeg.{side}")
         bone(f"PoleTarget.{side}", (hx, -0.35 * H, kz), (hx, -0.35 * H, kz + 0.1 * H), "Root")
 
     for n in CONTROL_BONES:

@@ -35,6 +35,13 @@ class Rig:
             b.name: b.matrix_local.to_3x3().normalized() for b in armature_obj.data.bones
         }
         self.action = None
+        H = self.profile.get("height", REF_HEIGHT)
+        # foot geometry in reference units: heel behind ankle, ball ahead, ankle height
+        self.foot_dims = (0.034 * H / self.unit, 0.086 * H / self.unit,
+                          self.profile.get("ankle_z", 0.05 * H) / self.unit)
+        self.leg_len = (self.profile.get("hip_z", 0.53 * H) - self.profile.get("ankle_z", 0.05 * H)) / self.unit
+        self.hip_x = self.profile.get("hip_x", 0.07 * H) / self.unit
+        self.foot_pose = {"L": (0.0, 0.0), "R": (0.0, 0.0)}  # (pitch toes-up deg, yaw deg)
 
     # -- pose ---------------------------------------------------------------
     def reset(self):
@@ -43,6 +50,7 @@ class Rig:
             pb.location = (0, 0, 0)
             pb.rotation_quaternion = (1, 0, 0, 0)
             pb.scale = (1, 1, 1)
+        self.foot_pose = {"L": (0.0, 0.0), "R": (0.0, 0.0)}
 
     def rot(self, bone, x=0.0, y=0.0, z=0.0, order="XYZ"):
         """Rotate `bone` by Euler degrees about armature axes (applied in `order`)."""
@@ -94,6 +102,22 @@ class Rig:
             if slot is not None:
                 ad.action_slot = slot
 
+    def settle_feet(self):
+        """Orient each Ankle bone to `foot_pose` (world pitch / yaw), whatever the leg is doing.
+
+        Needs the evaluated shin orientation (IK), so it syncs first. Pitch is toes-up
+        positive; yaw is relative to the character's heading.
+        """
+        if "Ankle.L" not in self.bones:
+            return
+        self.sync()
+        for side in "LR":
+            pitch, yaw = self.foot_pose[side]
+            shin = self.bones[f"LowerLeg.{side}"]
+            r_parent = shin.matrix.to_3x3() @ self._rest3[shin.name].inverted()
+            r_des = Matrix.Rotation(math.radians(yaw), 3, "Z") @ Matrix.Rotation(math.radians(-pitch), 3, "X")
+            self.rot_matrix(f"Ankle.{side}", r_parent.inverted() @ r_des)
+
     def arm_ik(self, side, wrist, pole=(0.8, -0.6, -0.2), twist=0.0):
         """Two-bone arm IK: put the wrist at `wrist` (armature-space metres).
 
@@ -134,7 +158,9 @@ class Rig:
         self.reset()
         return act
 
-    def key(self, frame, interpolation="BEZIER"):
+    def key(self, frame, interpolation="BEZIER", settle=True):
+        if settle:  # orient the ankles to foot_pose first (the sequencer bakes them itself)
+            self.settle_feet()
         for pb in self.bones:
             pb.keyframe_insert("location", frame=frame, group=pb.name)
             pb.keyframe_insert("rotation_quaternion", frame=frame, group=pb.name)

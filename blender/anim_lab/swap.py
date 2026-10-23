@@ -114,6 +114,28 @@ def bind_rigid(meshes, arm, bone):
         mod.object = arm
 
 
+def bind_feet(mesh_obj, profile, zone):
+    """Make the foot part of `mesh_obj` follow the Ankle bones.
+
+    Vertices lower than `ankle_z + zone[0]*height` go 100% to the Ankle bone of their side;
+    up to `zone[1]*height` they blend into whatever weights heat-mapping gave them.
+    """
+    H, az = profile["height"], profile["ankle_z"]
+    lo, hi = az + zone[0] * H, az + zone[1] * H
+    me = mesh_obj.data
+    groups = mesh_obj.vertex_groups
+    for v in me.vertices:
+        z = v.co.z
+        if z >= hi:
+            continue
+        b = 1.0 if z <= lo else (hi - z) / max(hi - lo, 1e-6)
+        ankle = groups.get("Ankle.L" if v.co.x > 0 else "Ankle.R")
+        for g in list(v.groups):
+            if groups[g.group] is not ankle:
+                groups[g.group].add([v.index], g.weight * (1.0 - b), "REPLACE")
+        ankle.add([v.index], b, "REPLACE")
+
+
 def bend_hanging(obj, root_angle, tip_angle, n_bones):
     """Re-shape a straight hair tube (running along +Y) so it hangs down under gravity.
 
@@ -187,6 +209,10 @@ def load_and_bind(profile, arm, base_dir, mesh_paths=None):
             else:
                 smooth.append(m)
     bind_meshes(smooth, arm)
+    for m in smooth:
+        for key, zone in profile.get("foot_meshes", {}).items():
+            if key in m.name:
+                bind_feet(m, profile, zone)
     bind_rigid(rigid, arm, "Head")
     if pony is not None:
         n = spec.get("bones", 3)

@@ -9,7 +9,7 @@ as code. Everything runs headless through the `bpy` module -- no Blender install
 
 ## Continuous performance
 
-`python blender/showcase.py` bakes one 34 s take (walk, pivot, sit, stand, jump, walk, run, slow, wave) and renders it: [docs/previews/rain_showcase.mp4](docs/previews/rain_showcase.mp4). Walk/run/stand are one speed-driven gait; posture clips are cross-faded per bone (see `anim_lab/sequencer.py`).
+`python blender/showcase.py` bakes one 34 s take (walk, pivot, sit, stand, jump, walk, run, slow, wave) and renders it: [docs/previews/rain_showcase.mp4](docs/previews/rain_showcase.mp4). Walk/run/pivot/back-step are one speed-driven gait with world-latched feet and heel-to-toe foot roll; posture clips are cross-faded per bone (see `anim_lab/sequencer.py`, and [docs/MOTION_NOTES.md](docs/MOTION_NOTES.md) for the research behind it).
 
 ## Run it
 

@@ -20,6 +20,18 @@
     "assets/superhero_male/Superhero_Male_FullBody.gltf",
     "assets/superhero_male/Hair_SimpleParted.gltf"
   ],
-  "rigid_head": ["Eyes", "Eyebrows", "Hair"],
-  "exclude": ["Icosphere"]
+  "rigid_head": [
+    "Eyes",
+    "Eyebrows",
+    "Hair"
+  ],
+  "exclude": [
+    "Icosphere"
+  ],
+  "foot_meshes": {
+    "SuperHero_Male": [
+      0.0,
+      0.035
+    ]
+  }
 }

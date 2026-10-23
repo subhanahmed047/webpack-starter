@@ -34,9 +34,26 @@ def _box(name, center, size, mat):
     return o
 
 
-def add_ground():
-    mat = _material("Ground", (0.32, 0.36, 0.42, 1))
-    return _box("Ground", (0, 0, -0.1), (60, 60, 0.2), mat)
+def add_ground(checker=True):
+    """Big floor. A checkerboard (1 m tiles) makes locomotion readable on camera."""
+    bpy.ops.mesh.primitive_plane_add(size=120, location=(0, 0, 0))
+    o = bpy.context.active_object
+    o.name = "Ground"
+    m = bpy.data.materials.new("Ground")
+    m.use_nodes = True
+    nt = m.node_tree
+    bsdf = nt.nodes["Principled BSDF"]
+    bsdf.inputs["Roughness"].default_value = 0.9
+    if checker:
+        tex = nt.nodes.new("ShaderNodeTexChecker")
+        tex.inputs["Scale"].default_value = 60.0  # 120 m plane / 60 = 1 m per square pair
+        tex.inputs["Color1"].default_value = (0.55, 0.60, 0.68, 1)
+        tex.inputs["Color2"].default_value = (0.40, 0.45, 0.54, 1)
+        nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    else:
+        bsdf.inputs["Base Color"].default_value = (0.32, 0.36, 0.42, 1)
+    o.data.materials.append(m)
+    return o
 
 
 def add_chair(u=1.0, seat_z=None):
@@ -51,7 +68,11 @@ def add_chair(u=1.0, seat_z=None):
         for y in (y0 + 0.06 * u, y1 - 0.06 * u):
             parts.append(_box("Chair.Leg", (sx * 0.44 * u, y, (sz - t) / 2),
                               (t, t, sz - t), wood))
-    return parts
+    holder = bpy.data.objects.new("ChairHolder", None)
+    bpy.context.scene.collection.objects.link(holder)
+    for p in parts:
+        p.parent = holder
+    return holder
 
 
 def setup_lighting(world_strength=0.9):

@@ -183,45 +183,46 @@ def cheer(r):
 
 
 # ------------------------------------------------------------------ cycles
-def _gait(r, name, frames, half_stride, lift, bob, lean, arm_swing, drop, run=False):
-    """Procedural loop. Phase p in [0,1); the right foot trails the left by half a cycle."""
-    r.begin_action(name)
-    n = frames
-    for i in range(n + 1):
-        p = (i % n) / n
-        stand(r)
+def gait_pose(r, p, h, lift, bob, lean, arm_swing, drop, runness=0.0, head_yaw=0.0):
+    """Set the rig to one frame of a gait. `p` is the cycle phase in [0,1) (left foot
+    leads); `h` is the half stride. Arms blend from a walker's swing to a runner's pump
+    by `runness` (0..1)."""
+    stand(r)
 
-        def foot(ph):
-            if ph < 0.5:                                 # stance: foot slides back under the body
-                q = ph / 0.5
-                return -half_stride + 2 * half_stride * q, 0.0
-            q = (ph - 0.5) / 0.5                          # swing: foot arcs forward
-            return half_stride - 2 * half_stride * smoothstep(q), lift * math.sin(math.pi * q)
+    def foot(ph):
+        if ph < 0.5:                                 # stance: foot slides back under the body
+            q = ph / 0.5
+            return -h + 2 * h * q, 0.0
+        q = (ph - 0.5) / 0.5                          # swing: foot arcs forward
+        return h - 2 * h * smoothstep(q), lift * math.sin(math.pi * q)
 
-        (ly, lz), (ry, rz) = foot(p), foot((p + 0.5) % 1.0)
-        feet(r, l=(-ly, lz, 0), rt=(-ry, rz, 0), spread=0.02)
+    (ly, lz), (ry, rz) = foot(p % 1.0), foot((p + 0.5) % 1.0)
+    feet(r, l=(-ly, lz, 0), rt=(-ry, rz, 0), spread=0.02)
 
-        w = 2 * math.pi * p
-        r.move("Body", x=0.04 * math.sin(w), z=-drop - bob * math.cos(2 * w))
-        r.rot("Hips", z=-6 * math.sin(w) * (arm_swing / 40))
-        r.rot("Torso", x=lean, z=8 * math.sin(w) * (arm_swing / 40))
-        r.rot("Head", z=-4 * math.sin(w), x=-lean * 0.6)
-        # each arm swings opposite to the leg on its side
-        a_l, a_r = -arm_swing * math.sin(w), arm_swing * math.sin(w)
-        if run:
-            arm(r, "L", run_arm(a_l))
-            arm(r, "R", run_arm(a_r))
-        else:
-            arm(r, "L", swing(a_l, bend=0.35))
-            arm(r, "R", swing(a_r, bend=0.35))
-        r.key(i)
-    return r.end_action(loop=True)
+    w = 2 * math.pi * p
+    r.move("Body", x=0.04 * math.sin(w), z=-drop - bob * math.cos(2 * w))
+    r.rot("Hips", z=-6 * math.sin(w) * (arm_swing / 40))
+    r.rot("Torso", x=lean, z=8 * math.sin(w) * (arm_swing / 40))
+    r.rot("Head", z=-4 * math.sin(w) + head_yaw, x=-lean * 0.6)
+    # each arm swings opposite to the leg on its side
+    for side, a in (("L", -arm_swing * math.sin(w)), ("R", arm_swing * math.sin(w))):
+        arm(r, side, mix(swing(a, bend=0.35), run_arm(a), runness))
 
 
 def run_arm(deg):
     """Runner's arm: elbow bent ~90 degrees, pumping fore/aft."""
     a = math.radians(deg)
     return ((0.30, math.sin(a), -math.cos(a)), (0.22, 1.0, 0.05 + 0.5 * math.sin(a)))
+
+
+def _gait(r, name, frames, half_stride, lift, bob, lean, arm_swing, drop, run=False):
+    """Loopable gait Action."""
+    r.begin_action(name)
+    for i in range(frames + 1):
+        gait_pose(r, (i % frames) / frames, half_stride, lift, bob, lean, arm_swing, drop,
+                  runness=1.0 if run else 0.0)
+        r.key(i)
+    return r.end_action(loop=True)
 
 
 def walk(r):
@@ -234,14 +235,26 @@ def run(r):
                  arm_swing=48, drop=0.20, run=True)
 
 
+def idle_pose(r, t):
+    """Standing idle at time `t` seconds: breathing, slight head drift."""
+    a = math.sin(2 * math.pi * t / 2.5)
+    stand(r)
+    r.move("Body", z=0.012 * a)
+    r.rot("Torso", x=1.5 * a)
+    r.rot("Head", z=3 * math.sin(2 * math.pi * t / 1.25), x=-1.5 * a)
+
+
+def sit_idle_pose(r, t):
+    """Seated rest at time `t` seconds."""
+    a = math.sin(2 * math.pi * t / 2.8)
+    seated(r, 1.0, lean=2 + 1.0 * a)
+    r.rot("Head", z=5 * math.sin(2 * math.pi * t / 4.0), x=-2)
+
+
 def idle(r):
     r.begin_action("idle")
     for f in range(0, 61, 10):
-        a = math.sin(2 * math.pi * f / 60)
-        stand(r)
-        r.move("Body", z=0.012 * a)
-        r.rot("Torso", x=1.5 * a)
-        r.rot("Head", z=3 * math.sin(2 * math.pi * f / 60 * 2), x=-1.5 * a)
+        idle_pose(r, f / 24 * 2.5 / 2.5)
         r.key(f)
     return r.end_action(loop=True)
 
